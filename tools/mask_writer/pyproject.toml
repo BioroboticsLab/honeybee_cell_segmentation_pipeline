@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mask-writer"
+version = "0.1.0"
+description = "Convert annotations to segmentation masks"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    {name = "Daniel Sturm", email = "d.sturm@fu-berlin.de"}
+]
+dependencies = [
+    "opencv-python",
+    "numpy",
+    "matplotlib",
+]
+
+[project.scripts]
+mask-writer = "mask_writer:main"
+
+# For Poetry users (optional)
+[tool.poetry]
+name = "mask-writer"
+version = "0.1.0"
+description = "Convert annotations to segmentation masks"
+authors = ["Daniel Sturm <d.sturm@fu-berlin.de>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.14"
+opencv-python = "*"
+numpy = "*"
+matplotlib = "*"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false
