@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "frame-extractor"
+version = "0.1.0"
+description = "Extract frames from video files at regular intervals"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    {name = "Daniel Sturm", email = "daniel.sturm@fu-berlin.de"}
+]
+dependencies = []
+
+[project.scripts]
+frame-extractor = "main:main"
+
+# For Poetry users (optional)
+[tool.poetry]
+name = "frame-extractor"
+version = "0.1.0"
+description = "Extract frames from video files at regular intervals"
+authors = ["Daniel Sturm <daniel.sturm@fu-berlin.de>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.14"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false
