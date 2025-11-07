@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "comb-limitor"
+version = "0.1.0"
+description = "Generate binary masks for honeybee comb images"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    {name = "Daniel Sturm", email = "daniel.sturm@fu-berlin.de"}
+]
+dependencies = [
+    "honeybee-comb-segmentor",
+    "opencv-python",
+    "numpy",
+]
+
+# For Poetry users (optional)
+[tool.poetry]
+name = "comb-limitor"
+version = "0.1.0"
+description = "Generate binary masks for honeybee comb images"
+authors = ["Daniel Sturm <daniel.sturm@fu-berlin.de>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.14"
+honeybee-comb-segmentor = {path = "../honeybee_segmentor", develop = true}
+opencv-python = "*"
+numpy = "*"
+
+[tool.setuptools.packages.find]
+where = ["src"]
