@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "background-generator"
+version = "0.1.0"
+description = "Generate bee-free background images from video"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    {name = "Daniel Sturm", email = "daniel.sturm@fu-berlin.de"}
+]
+dependencies = [
+    "joblib>=1.5.1,<2.0.0",
+    "opencv-python",
+    "numpy",
+    "scipy",
+    "tqdm",
+    "torch",
+    "cupy-cuda12x>=13.4.1,<14.0.0",
+]
+
+[project.optional-dependencies]
+cuda = []
+dev = ["notebook>=7.4.4", "ipykernel>=6.29.5"]
+
+[project.scripts]
+background-generator = "main:main"
+
+# For Poetry users (optional)
+[tool.poetry]
+name = "background-generator"
+version = "0.1.0"
+description = "Generate bee-free background images from video"
+authors = ["Daniel Sturm <daniel.sturm@fu-berlin.de>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.14"
+honeybee-segmentor = {path = "../../packages/honeybee_segmentor", develop = true}
+frame-extractor = {path = "../frame_extractor", develop = true}
+joblib = ">=1.5.1,<2.0.0"
+opencv-python = "*"
+numpy = "*"
+scipy = "*"
+tqdm = "*"
+torch = "*"
+
+[tool.poetry.group.dev.dependencies]
+notebook = "^7.4.4"
+ipykernel = "^6.29.5"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false
