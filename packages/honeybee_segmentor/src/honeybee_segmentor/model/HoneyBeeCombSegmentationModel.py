@@ -1,0 +1,61 @@
+import os
+
+import torch
+from torch import Tensor
+import segmentation_models_pytorch as smp
+
+mapping_dict = {"effnetb0": "efficientnet-b0", "mobilenetv3": "timm-mobilenetv3_small_100", "resnet18": "resnet18", "resnet34": "resnet34"}
+
+
+class HoneyBeeCombSegmentationModel:
+    def __init__(self, model_name: str, path_to_pretrained_models: str, device: str = "cpu", num_classes: int = 9):
+
+        self.num_classes = num_classes
+        self.model = self.get_model_by_name(model_name, path_to_pretrained_models)
+
+        self.model.to(device)
+        self.model.eval()
+
+    @torch.no_grad()
+    def __call__(self, x: Tensor) -> Tensor:
+
+        return self.model(x)
+
+    def get_model_by_name(self, model_name: str, path_to_pretrained_models: str) -> torch.nn.Module:
+        """
+        initiates model from segmentation_models_pytorch package and loads pre-trained state-dict
+        """
+
+        path_to_state_dict = os.path.join(path_to_pretrained_models, model_name + ".pth")
+        state_dict = torch.load(path_to_state_dict)
+        state_dict_adjusted = {k.replace("model.", ""): v for k, v in state_dict.items()}
+
+        # Parse architecture and encoder from model name
+        if "_" in model_name:
+            architecture, encoder = model_name.split("_")
+            encoder = mapping_dict[encoder]
+        elif model_name == "combSegmentor":
+            architecture = "unet"
+            encoder = "efficientnet-b0"
+        else:
+            raise Exception(f"Model name is not known: {model_name}")
+
+        model = self._setup_model(architecture, encoder, self.num_classes)
+        model.load_state_dict(state_dict_adjusted)
+
+        return model
+
+    def _setup_model(self, architecture: str, encoder: str, num_classes: int = 9) -> torch.nn.Module:
+
+        if architecture == "unet":
+            model = smp.Unet(encoder_name=encoder, classes=num_classes, in_channels=1)
+        elif architecture == "manet":
+            model = smp.MAnet(encoder_name=encoder, classes=num_classes, in_channels=1)
+        elif architecture == "deeplabv3":
+            model = smp.DeepLabV3(encoder_name=encoder, classes=num_classes, in_channels=1)
+        elif architecture == "deeplabv3p":
+            model = smp.DeepLabV3Plus(encoder_name=encoder, classes=num_classes, in_channels=1)
+        else:
+            raise Exception(f"selected model architecture: <{architecture}> is not defined!")
+
+        return model

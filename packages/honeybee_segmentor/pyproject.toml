@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "honeybee-comb-segmentor"
+version = "0.1.0"
+description = "Core segmentation framework for honeybee comb analysis"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    {name = "Ivan Matoschchuk"}
+]
+dependencies = [
+    "torch>=2.0",
+    "torchvision",
+    "segmentation-models-pytorch>=0.5.0,<0.6.0",
+    "albumentations>=2.0.8,<3.0.0",
+    "monai>=1.5.0,<2.0.0",
+    "matplotlib>=3.10.3,<4.0.0",
+    "tqdm>=4.67.1,<5.0.0",
+    "numpy",
+    "opencv-python",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "black", "mypy", "notebook>=7.4.4", "ipykernel>=6.29.5"]
+
+# For Poetry users (optional)
+[tool.poetry]
+name = "honeybee-comb-segmentor"
+version = "0.1.0"
+description = "Core segmentation framework for honeybee comb analysis"
+authors = ["Ivan Matoschchuk"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.14"
+torch = ">=2.0"
+torchvision = "*"
+segmentation-models-pytorch = ">=0.5.0,<0.6.0"
+albumentations = ">=2.0.8,<3.0.0"
+monai = ">=1.5.0,<2.0.0"
+matplotlib = ">=3.10.3,<4.0.0"
+tqdm = ">=4.67.1,<5.0.0"
+numpy = "*"
+opencv-python = "*"
+pyyaml = "*"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "*"
+black = "*"
+mypy = "*"
+notebook = "^7.4.4"
+ipykernel = "^6.29.5"
+
+[tool.setuptools.packages.find]
+where = ["src"]
