@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cell-finder"
+version = "0.1.0"
+description = "Finds cells in honeybee comb images"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    {name = "Daniel Sturm", email = "daniel.sturm@fu-berlin.de"}
+]
+dependencies = [
+    "comb-limitor",
+    "opencv-python",
+    "numpy",
+    "scikit-learn>=1.7.1,<2.0.0",
+]
+
+[project.scripts]
+cell-finder = "cell_finder.cell_finder:main"
+performance-validation = "cell_finder.performance_validation.performance_validation:main"
+
+# For Poetry users (optional)
+[tool.poetry]
+name = "cell-finder"
+version = "0.1.0"
+description = "Finds cells in honeybee comb images"
+authors = ["Daniel Sturm <daniel.sturm@fu-berlin.de>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.14"
+comb-limitor = {path = "../../packages/comb_limitor", develop = true}
+opencv-python = "*"
+numpy = "*"
+scikit-learn = ">=1.7.1,<2.0.0"
+
+[tool.setuptools.packages.find]
+where = ["src"]
