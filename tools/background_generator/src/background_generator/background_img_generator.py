@@ -66,6 +66,9 @@ class BackgroundImageGenerator:
         path: Path,
         role: Literal["background", "masked"],
     ) -> list[Path]:
+        """Find images by matching filename patterns for the given role.
+        Falls back to a general '{prefix}_*.png' search if no pattern matches.
+        """
 
         patterns = [
             r"^{prefix}_cam-\d_(\d{{8}}T\d{{6}}\.\d{{1,6}}\.\d{{1,3}}Z)\.png$",
@@ -78,8 +81,16 @@ class BackgroundImageGenerator:
         all_images = sorted(path.glob("*"))
         filtered_images = [img for img in all_images if any(r.match(img.name) for r in regexes)]
 
-        if len(filtered_images) == 0:
-            print(f"no images found that match any pattern. searched for role: {role}")
+        # If nothing matched, fall back to a simpler search
+        if not filtered_images:
+            print(f"No images found matching strict patterns for role '{role}'. Falling back to general search...")
+            fallback_pattern = f"{role}_*.png"
+            filtered_images = sorted(path.glob(fallback_pattern))
+
+            if filtered_images:
+                print(f"Using general search pattern '{fallback_pattern}', found {len(filtered_images)} images.")
+            else:
+                print(f"No images found for role '{role}' (in fallback search).")
 
         return filtered_images
 
