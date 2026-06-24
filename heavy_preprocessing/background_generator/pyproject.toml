@@ -26,7 +26,7 @@ cuda = []
 dev = ["notebook>=7.4.4", "ipykernel>=6.29.5"]
 
 [project.scripts]
-background-generator = "main:main"
+background-generator = "background_generator.cli:main"
 
 # For Poetry users (optional)
 [tool.poetry]

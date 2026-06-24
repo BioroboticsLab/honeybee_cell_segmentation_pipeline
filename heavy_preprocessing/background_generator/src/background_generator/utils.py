@@ -65,6 +65,25 @@ class BgImageGenConfig(BaseModel):
         device (Literal["cuda", "cpu"]):
             Processing device for segmentation and median computations.
             Use "cuda" for GPU acceleration if available, otherwise "cpu".
+
+        frame_interval_sec (int | None):
+            Optional time spacing (seconds) to subsample the extracted frames
+            before combining them. None (default) uses every frame in the folder.
+            Lets you compare backgrounds built from e.g. 5-min vs 10-min frames
+            without re-extracting. Frames are selected greedily by their
+            timestamp (parsed from the filename), keeping one per interval.
+
+        background_window (str | int | None):
+            Optional time span each background covers. When set, one background
+            is produced per window instead of the count-driven rolling walk.
+            Accepts "hour", "day", or an integer number of seconds. None
+            (default) keeps the original count-based behavior (window_size /
+            num_median_images / jump_size_from_last / max_cycles).
+
+        memmap_dir (str | None):
+            Directory for the temporary rolling-median memmap file. Defaults to
+            the system temp dir. Set a per-task path on shared clusters so
+            concurrent jobs on one node do not collide on the memmap file.
     """
 
     window_size: int = 10
@@ -76,3 +95,6 @@ class BgImageGenConfig(BaseModel):
     median_computation: Literal["cupy", "cuda_support", "masked_array"] = "cupy"
     segmentation_model: Literal["unet_effnetb0"] = "unet_effnetb0"
     device: Literal["cuda", "cpu"] = "cuda"
+    frame_interval_sec: int | None = None
+    background_window: str | int | None = None
+    memmap_dir: str | None = None

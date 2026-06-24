@@ -100,7 +100,17 @@ background-generator \
 - `--max-workers`: Parallel workers for extraction (default: 2)
 - `--fps`: Video processing FPS (default: 3)
 
-**Background Generation:**
+**Frame selection / windowing (optional):**
+- `--cams`: Restrict to specific cameras, e.g. `--cams cam-0` (default: all)
+- `--frame-interval-sec`: Subsample frames to this spacing (s) before combining,
+  e.g. compare backgrounds from 5-min vs 10-min frames without re-extracting
+  (default: use every frame)
+- `--background-window`: Produce one background per time window: `hour`, `day`,
+  or a number of seconds (default: count-based rolling mode)
+- `--memmap-dir`: Directory for the temporary rolling-median memmap (default:
+  system temp; set a per-task path on shared clusters)
+
+**Background Generation (count-based mode):**
 - `--window-size`: Frames per rolling median (default: 10)
 - `--num-median-images`: Number of median images per background (default: 200)
 - `--max-cycles`: Max backgrounds per camera (default: None = unlimited)
@@ -110,12 +120,19 @@ background-generator \
 - `--median-computation`: Method: `cupy` (GPU), `cuda_support`, or `masked_array` (CPU) (default: cupy)
 - `--device`: Processing device: `cuda` or `cpu` (default: cuda)
 
+> **Output layout:** backgrounds are written to
+> `<output>/<cam>/<config-tag>/background_*.png`, where the config tag encodes
+> the interval/window settings (e.g. `int600s_winhour`). This keeps different
+> configurations as distinct, comparable products and lets re-runs of the same
+> config skip already-produced windows. Masked frames are shared across configs
+> at `<output>/masked/<cam>/`.
+
 ### Python Module Usage
 
 ```python
 from pathlib import Path
-from background_img_generator import BackgroundImageGenerator
-from utils import BgImageGenConfig
+from background_generator.background_img_generator import BackgroundImageGenerator
+from background_generator.utils import BgImageGenConfig
 
 # Configure background generation
 config = BgImageGenConfig(
@@ -125,14 +142,17 @@ config = BgImageGenConfig(
     apply_clahe="post",
     mask_dilation=15,
     median_computation="cupy",
-    device="cuda"
+    device="cuda",
+    frame_interval_sec=600,    # optional: one frame per 10 min
+    background_window="hour",  # optional: one background per hour
 )
 
-# Generate backgrounds
+# Generate backgrounds (optionally restrict to specific cameras)
 generator = BackgroundImageGenerator(
     source_path=Path("/path/to/frames"),
     output_path=Path("/path/to/backgrounds"),
-    config=config
+    config=config,
+    cams=["cam-0"],
 )
 generator.run()
 ```
@@ -141,7 +161,7 @@ generator.run()
 
 ```python
 from pathlib import Path
-from global_video_processor import GlobalVideoProcessor
+from frame_extractor.global_video_processor import GlobalVideoProcessor
 
 processor = GlobalVideoProcessor(
     base_dir=Path("/path/to/videos"),

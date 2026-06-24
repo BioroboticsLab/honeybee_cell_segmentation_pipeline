@@ -10,10 +10,17 @@ Extract frames from video files at regular intervals using FFmpeg.
    python install.py frame-extractor
    ```
 
-2. Download an ffmpeg binary with CUDA support:
+2. Provide ffmpeg. The extractor resolves ffmpeg in this order: explicit
+   `--ffmpeg-bin` / `ffmpeg_bin_path` argument → `BB_FFMPEG_BIN` env var →
+   a binary bundled under `heavy_preprocessing/frame_extractor/src/frame_extractor/bin/`
+   → `ffmpeg` found on `PATH` (e.g. a conda env or container).
+
+   For NVIDIA GPU decode (`hevc_cuvid`, the default), ffmpeg must be a CUDA build:
    - **Windows:** [Gyan FFmpeg builds](https://www.gyan.dev/ffmpeg/builds/#git-master-builds)
    - **Linux:** [BtbN FFmpeg builds](https://github.com/BtbN/FFmpeg-Builds/releases)
-   - Place the ffmpeg executable in `tools/frame_extractor/bin/` (or update the code to point to your location)
+
+   On CPU-only nodes (or with a plain ffmpeg that lacks NVDEC), pass
+   `--decoder none` (CLI) or `decoder=None` (library) to use software decode.
 
 ## Input Directory Structure
 
@@ -64,7 +71,7 @@ frame-extractor ./input_dir ./output_dir --interval_in_sec 60 --max_workers 4 --
 
 ```python
 from pathlib import Path
-from global_video_processor import GlobalVideoProcessor
+from frame_extractor.global_video_processor import GlobalVideoProcessor
 
 processor = GlobalVideoProcessor(
     base_dir=Path("./input_dir"),
@@ -72,6 +79,13 @@ processor = GlobalVideoProcessor(
     interval_in_sec=60,
     max_workers=2,
     fps=3,
+    dates=["20250603"],   # optional: restrict to specific YYYYMMDD folders
+    cams=["cam-0"],        # optional: restrict to specific cameras
+    decoder="hevc_cuvid",  # or None for software decode
 )
 processor.run()
 ```
+
+Re-running at a coarser interval that is a multiple of a finer one does ~no
+work: the extractor skips any video whose expected output frames already exist
+(the coarser run's filenames are a subset of the finer run's).

@@ -20,7 +20,7 @@ INSTALL_GRAPH = {
         "tools/mask_writer"
     ],
     "frame-extractor": [
-        "tools/frame_extractor"
+        "heavy_preprocessing/frame_extractor"
     ],
     "cell-finder": [
         "packages/honeybee_segmentor",
@@ -29,8 +29,8 @@ INSTALL_GRAPH = {
     ],
     "background-generator": [
         "packages/honeybee_segmentor",
-        "tools/frame_extractor",
-        "tools/background_generator"
+        "heavy_preprocessing/frame_extractor",
+        "heavy_preprocessing/background_generator"
     ],
 }
 

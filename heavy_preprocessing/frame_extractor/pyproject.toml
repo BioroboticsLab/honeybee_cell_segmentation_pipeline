@@ -14,7 +14,7 @@ authors = [
 dependencies = []
 
 [project.scripts]
-frame-extractor = "main:main"
+frame-extractor = "frame_extractor.cli:main"
 
 # For Poetry users (optional)
 [tool.poetry]

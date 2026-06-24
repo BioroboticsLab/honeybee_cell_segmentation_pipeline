@@ -1,8 +1,10 @@
 import cv2
 import gc
+import os
 import numpy as np
 import tempfile
 
+from datetime import datetime, timedelta
 from joblib import Parallel, delayed
 from pathlib import Path, PurePath
 from scipy.stats import mode
@@ -12,9 +14,10 @@ import honeybee_segmentor
 from honeybee_segmentor.inference.HoneyBeeCombInferer import (
     HoneyBeeCombInferer,
 )
-from collections import deque
+from collections import deque, OrderedDict
 from typing import Deque
 from background_generator.utils import timed, BgImageGenConfig
+from background_generator import windowing
 
 import torch
 import cupy as cp
@@ -22,7 +25,13 @@ import re
 
 
 class BackgroundImageGenerator:
-    def __init__(self, source_path: Path, output_path: Path, config: BgImageGenConfig):
+    def __init__(
+        self,
+        source_path: Path,
+        output_path: Path,
+        config: BgImageGenConfig,
+        cams: list[str] | None = None,
+    ):
         self._config = config
         if not source_path.is_dir():
             raise NotADirectoryError(f"provided source path {source_path} is not a directory")
@@ -30,6 +39,18 @@ class BackgroundImageGenerator:
         if not output_path.is_dir():
             raise NotADirectoryError(f"provided output path {output_path} is not a directory")
         self.output_path = output_path
+
+        # Optional camera filter so an external scheduler (bb_hpc) can target one
+        # (date, camera) shard per task. None -> all cameras under source_path.
+        self._cams = set(cams) if cams else None
+
+        # Per-task memmap location: defaults to system temp, but a per-task path
+        # avoids collisions when several jobs share a node (the old code used a
+        # single fixed /tmp/rolling_medians.dat).
+        self._memmap_base = Path(config.memmap_dir) if config.memmap_dir else Path(tempfile.gettempdir())
+        self._memmap_base.mkdir(parents=True, exist_ok=True)
+        self._memmap_counter = 0
+
         self.frame_dirs_per_cam = self._find_extracted_frames_dirs()
 
         self.output_dirs = self.create_output_dir()
@@ -46,18 +67,47 @@ class BackgroundImageGenerator:
             cam_masked_path = out_dirs_per_cam.get("masked")
             cam_bg_path = out_dirs_per_cam.get("background")
             self.mask_out_bees(cam_in_path=path, cam_masked_out_path=cam_masked_path)
-            self.process_all_rolling_backgrounds(
-                masked_img_dir=cam_masked_path,
-                background_img_dir=cam_bg_path,
-                jump_size_from_last=self._config.jump_size_from_last,
-                max_cycles=self._config.max_cycles,
-            )
+            if self._config.background_window:
+                # Time-windowed mode: one background per time window.
+                self.process_windowed_backgrounds(
+                    masked_img_dir=cam_masked_path,
+                    background_img_dir=cam_bg_path,
+                )
+            else:
+                # Original count-driven rolling-median mode.
+                self.process_all_rolling_backgrounds(
+                    masked_img_dir=cam_masked_path,
+                    background_img_dir=cam_bg_path,
+                    jump_size_from_last=self._config.jump_size_from_last,
+                    max_cycles=self._config.max_cycles,
+                )
+
+    # ------------------------------------------------------------------ #
+    # Config-encoded output layout + temp paths
+    # ------------------------------------------------------------------ #
+    def config_tag(self) -> str:
+        """A short tag identifying this background configuration.
+
+        Encoded into the output path so different configs (e.g. 5-min vs 10-min
+        sampling, hourly vs daily windows) are distinct, comparable products and
+        a repeat config is recognized as already-done.
+        """
+        c = self._config
+        return windowing.config_tag(
+            c.frame_interval_sec, c.background_window, c.window_size, c.num_median_images
+        )
+
+    def _new_memmap_path(self, tag: str) -> Path:
+        self._memmap_counter += 1
+        return self._memmap_base / f"bgmedian_{os.getpid()}_{tag}_{self._memmap_counter}.dat"
 
     def _find_extracted_frames_dirs(self) -> dict[str, Path]:
         pattern = re.compile(r"^cam-\d$")
         matches = {}
         for path in self.source_path.iterdir():
-            if path.iterdir() and pattern.match(path.name):
+            if path.is_dir() and pattern.match(path.name):
+                if self._cams is not None and path.name not in self._cams:
+                    continue
                 matches[path.name] = path
         return matches
 
@@ -127,10 +177,15 @@ class BackgroundImageGenerator:
 
     def create_output_dir(self) -> dict[str, dict[str, Path]]:
         output_dir_dict = {}
+        tag = self.config_tag()
         for key in self.frame_dirs_per_cam.keys():
+            # Masking is independent of the interval/window config, so the masked
+            # frames are shared across configs (one dir per camera).
             masked_img_dir: Path = self.output_path / "masked" / key
             Path.mkdir(masked_img_dir, parents=True, exist_ok=True)
-            background_img_dir: Path = self.output_path / key
+            # Backgrounds are config-specific: encode the tag in the path so
+            # different configs are distinct, comparable products.
+            background_img_dir: Path = self.output_path / key / tag
             Path.mkdir(background_img_dir, parents=True, exist_ok=True)
             output_dir_dict[key] = {"masked": masked_img_dir, "background": background_img_dir}
         return output_dir_dict
@@ -143,6 +198,105 @@ class BackgroundImageGenerator:
         model_dir = segmentor_root / "models"
         assert model_dir.is_dir(), f"Weights path is not a dir: {model_dir}"
         return model_dir
+
+    # ------------------------------------------------------------------ #
+    # Time-based subsampling / windowing (shared logic in windowing.py)
+    # ------------------------------------------------------------------ #
+    def _subsample_by_interval(self, paths: list[Path]) -> list[Path]:
+        """Greedily keep one frame per ``frame_interval_sec`` by timestamp."""
+        interval = self._config.frame_interval_sec
+        if not interval:
+            return paths
+        kept_names = set(windowing.select_by_interval([p.name for p in paths], interval))
+        return [p for p in paths if p.name in kept_names]
+
+    def process_windowed_backgrounds(
+        self,
+        masked_img_dir: Path,
+        background_img_dir: Path,
+        tile_size=(512, 512),
+        min_frames: int = 3,
+    ) -> None:
+        """Produce one background per time window from the masked frames.
+
+        Frames are optionally subsampled by ``frame_interval_sec`` and grouped
+        into ``background_window`` buckets; each bucket yields one background
+        named ``background_<window-start>.png``. Existing outputs are skipped so
+        the stage is resumable and a repeat config does no work.
+        """
+        masked_images = self._find_images_by_path(masked_img_dir, role="masked")
+        if not masked_images:
+            print(f"No masked images found in {masked_img_dir}")
+            return
+
+        masked_images = self._subsample_by_interval(masked_images)
+
+        # Group frames by window start (preserve chronological order).
+        win_cfg = self._config.background_window
+        windows: "OrderedDict[datetime, list[Path]]" = OrderedDict()
+        for p in masked_images:
+            ts = windowing.parse_ts_from_name(p.name)
+            if ts is None:
+                continue
+            windows.setdefault(windowing.window_bucket(ts, win_cfg), []).append(p)
+
+        print(f"{len(windows)} background window(s) for config '{self.config_tag()}'")
+        for bucket_start, frames in windows.items():
+            out_name = f"background_{windowing.ts_to_name(bucket_start)}.png"
+            out_path = background_img_dir / out_name
+            if out_path.exists():
+                continue  # resume / skip already-produced window
+            self._compute_window_background(frames, out_path, tile_size=tile_size, min_frames=min_frames)
+
+    def _compute_window_background(
+        self,
+        masked_paths: list[Path],
+        out_path: Path,
+        tile_size=(512, 512),
+        min_frames: int = 3,
+    ) -> bool:
+        """Tile-wise median over all (bee-masked) frames in one window."""
+        if len(masked_paths) < min_frames:
+            print(f"Window {out_path.name}: only {len(masked_paths)} frames (< {min_frames}); skipping")
+            return False
+
+        first_img = self._read_image(masked_paths[0])
+        if first_img is None:
+            print(f"Could not read {masked_paths[0]}")
+            return False
+        H, W = first_img.shape
+        n = len(masked_paths)
+
+        memmap_file = self._new_memmap_path("win")
+        stack = np.memmap(memmap_file, dtype="uint8", mode="w+", shape=(n, H, W))
+        for k, p in enumerate(masked_paths):
+            img = self._read_image(p)
+            stack[k, :, :] = img if (img is not None and img.shape == (H, W)) else 0
+        stack.flush()
+        del stack
+        gc.collect()
+
+        stack = np.memmap(memmap_file, dtype="uint8", mode="r", shape=(n, H, W))
+        background = np.zeros((H, W), dtype=np.uint8)
+        results = Parallel(n_jobs=8)(
+            delayed(self._process_tile_stack)(stack, i, j, tile_size, True)
+            for i in range(0, H, tile_size[0])
+            for j in range(0, W, tile_size[1])
+        )
+        for i, i_end, j, j_end, tile_result in results:
+            background[i:i_end, j:j_end] = tile_result
+
+        background = self._apply_clahe(background)
+        self._save_image(background, out_path)
+        print("Window background saved to:", out_path)
+
+        del stack
+        gc.collect()
+        try:
+            memmap_file.unlink()
+        except Exception as e:
+            print(f"Could not delete memmap file: {e}")
+        return True
 
     def process_all_rolling_backgrounds(
         self,
@@ -186,6 +340,9 @@ class BackgroundImageGenerator:
             print("masked dir", masked_img_dir)
             return False
 
+        # Optional time-based subsampling of the input frames.
+        masked_images = self._subsample_by_interval(masked_images)
+
         background_images = self._find_images_by_path(background_img_dir, role="background")
 
         image_queue: Deque[tuple[np.ndarray, Path]] = deque()
@@ -197,7 +354,8 @@ class BackgroundImageGenerator:
         start_idx = 0
         if last_processed_img_name:
             try:
-                last_index = masked_images.index(masked_img_dir / last_processed_img_name)
+                masked_names = [p.name for p in masked_images]
+                last_index = masked_names.index(last_processed_img_name)
                 start_idx = last_index + jump_size_from_last
             except ValueError:
                 print(f"Could not find masked image {last_processed_img_name}")
@@ -227,7 +385,7 @@ class BackgroundImageGenerator:
         H, W = first_img.shape
         assert H > 0 and W > 0, f"Invalid shape: H={H}, W={W}"
 
-        self._memmap_file = Path(tempfile.gettempdir()) / "rolling_medians.dat"
+        self._memmap_file = self._new_memmap_path("rolling")
         self._rolling_memmap = np.memmap(self._memmap_file, dtype="uint8", mode="w+", shape=(num_medians, H, W))
 
         for path in sampled_masked_paths[: self._config.window_size - 1]:

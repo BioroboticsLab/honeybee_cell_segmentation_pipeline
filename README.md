@@ -36,12 +36,14 @@ python install.py comb-limitor
 ## Repository Structure
 
 ```
-├── tools/                      # Independent tools
+├── heavy_preprocessing/        # Heavy, do-once-first batch steps (run on HPC)
+│   ├── frame_extractor/        # Video frame extraction
+│   └── background_generator/   # Background image generation
+│
+├── tools/                      # Lighter, interactive tools (run together, later)
 │   ├── annotation_tool/        # Napari-based annotation UI
 │   ├── mask_writer/            # Mask generation from annotations
-│   ├── frame_extractor/        # Video frame extraction
-│   ├── cell_finder/            # Cell detection and analysis
-│   └── background_generator/   # Background image generation
+│   └── cell_finder/            # Cell detection and analysis
 │
 ├── packages/                   # Shared packages
 │   ├── honeybee_segmentor/     # Core segmentation framework
@@ -50,17 +52,27 @@ python install.py comb-limitor
 └── install.py                  # Unified installer script
 ```
 
+> **`heavy_preprocessing/` vs `tools/`:** frame extraction and background
+> generation are the long-running steps (1–2 weeks on a single machine) that
+> must be run **first**, before anything else — they are kept separate to make
+> that clear, and are intended to be scaled across an HPC cluster via `bb_hpc`
+> (the `frame_extract` / `background` stages). The lighter `tools/` (cell
+> finder, mask writer, annotation UI) run together afterwards.
+
 ## Detailed Documentation
 
 Each tool and package has its own README with detailed usage instructions:
+
+### Heavy preprocessing (run first, on HPC)
+
+- **Frame Extractor**: `/heavy_preprocessing/frame_extractor/README.md`
+- **Background Generator**: `/heavy_preprocessing/background_generator/README.md`
 
 ### Tools
 
 - **Annotation Tool**: `/tools/annotation_tool/README.md`
 - **Cell Finder**: `/tools/cell_finder/README.md`
-- **Frame Extractor**: `/tools/frame_extractor/README.md`
 - **Mask Writer**: `/tools/mask_writer/README.md`
-- **Background Generator**: `/tools/background_generator/README.md`
 
 ### Packages
 

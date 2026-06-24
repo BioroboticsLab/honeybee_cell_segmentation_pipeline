@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 from background_generator.background_img_generator import BackgroundImageGenerator
 from background_generator.utils import BgImageGenConfig
-from global_video_processor import GlobalVideoProcessor
+from frame_extractor.global_video_processor import GlobalVideoProcessor
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -24,6 +24,12 @@ def create_parser() -> argparse.ArgumentParser:
         type=Path,
         required=True,
         help="Path to output directory for background images"
+    )
+    parser.add_argument(
+        "--cams",
+        nargs="+",
+        default=None,
+        help="Optional cam-N folders to restrict to (default: all under --source)"
     )
 
     # Frame extraction subcommand
@@ -55,9 +61,33 @@ def create_parser() -> argparse.ArgumentParser:
         default=3,
         help="Frames per second for video processing"
     )
+    parser.add_argument(
+        "--decoder",
+        type=str,
+        default="hevc_cuvid",
+        help="ffmpeg -c:v decoder for extraction (default: hevc_cuvid). Pass 'none' for software decode."
+    )
 
     # Background generation configuration
     bg_group = parser.add_argument_group("background generation settings")
+    bg_group.add_argument(
+        "--frame-interval-sec",
+        type=int,
+        default=None,
+        help="Subsample extracted frames to this spacing (s) before combining (default: use all)"
+    )
+    bg_group.add_argument(
+        "--background-window",
+        type=str,
+        default=None,
+        help="Produce one background per time window: 'hour', 'day', or seconds (default: count-based mode)"
+    )
+    bg_group.add_argument(
+        "--memmap-dir",
+        type=str,
+        default=None,
+        help="Directory for the temporary rolling-median memmap (default: system temp)"
+    )
     bg_group.add_argument(
         "--window-size",
         type=int,
@@ -137,12 +167,15 @@ def validate_args(args: argparse.Namespace) -> None:
 
 
 def extract_frames(args: argparse.Namespace) -> None:
+    decoder = None if (args.decoder or "").lower() == "none" else args.decoder
     processor = GlobalVideoProcessor(
         base_dir=args.video_dir,
         out_dir=args.source,
         interval_in_sec=args.interval,
         max_workers=args.max_workers,
-        fps=args.fps
+        fps=args.fps,
+        cams=args.cams,
+        decoder=decoder,
     )
     processor.run()
 
@@ -157,13 +190,17 @@ def generate_backgrounds(args: argparse.Namespace) -> None:
         apply_clahe=args.apply_clahe,
         mask_dilation=args.mask_dilation,
         median_computation=args.median_computation,
-        device=args.device
+        device=args.device,
+        frame_interval_sec=args.frame_interval_sec,
+        background_window=args.background_window,
+        memmap_dir=args.memmap_dir,
     )
 
     generator = BackgroundImageGenerator(
         source_path=args.source,
         output_path=args.output,
-        config=config
+        config=config,
+        cams=args.cams,
     )
     generator.run()
 

@@ -4,13 +4,18 @@ from datetime import datetime
 import re
 from collections import defaultdict
 
-from frame_extractor import FrameExtractor
-from fe_utils import setup_logger
+from frame_extractor.extractor import FrameExtractor
+from frame_extractor.fe_utils import setup_logger
 
 
 class GlobalVideoProcessor:
     """
     “Allowed time intervals below 60 seconds are all divisors of 60. Intervals greater than or equal to 60 seconds must be multiples of 60.”
+
+    Optional ``dates`` and ``cams`` filters restrict processing to specific day
+    directories (``YYYYMMDD``) and cameras (``cam-N``). When unset, all dates and
+    cameras under ``base_dir`` are processed (original behavior). The filters let
+    an external scheduler (e.g. bb_hpc) target one (date, camera) shard per task.
     """
 
     def __init__(
@@ -21,6 +26,10 @@ class GlobalVideoProcessor:
         interval_in_sec=5,
         max_workers=2,
         fps=3,
+        dates: list[str] | None = None,
+        cams: list[str] | None = None,
+        decoder: str | None = "hevc_cuvid",
+        ffmpeg_bin_path: str | Path | None = None,
     ):
         self.base_dir = base_dir
         assert self.base_dir.is_dir(), f"base dir {self.base_dir} is no directory"
@@ -34,8 +43,17 @@ class GlobalVideoProcessor:
         self.interval_in_sec = interval_in_sec
         self.assert_valid_time_interval(interval_in_sec)
 
+        self.dates = set(dates) if dates else None
+        self.cams = set(cams) if cams else None
+
         self.max_workers = max_workers
-        self.frame_extractor = FrameExtractor(logger=self.logger, interval_sec=self.interval_in_sec, fps=fps)
+        self.frame_extractor = FrameExtractor(
+            logger=self.logger,
+            interval_sec=self.interval_in_sec,
+            fps=fps,
+            decoder=decoder,
+            ffmpeg_bin_path=ffmpeg_bin_path,
+        )
 
     def assert_valid_time_interval(self, interval: int) -> None:
         if interval < 60:
@@ -52,6 +70,8 @@ class GlobalVideoProcessor:
         valid_dirs = []
         for p in self.base_dir.iterdir():
             if p.is_dir() and pattern.match(p.name):
+                if self.dates is not None and p.name not in self.dates:
+                    continue
                 try:
                     datetime.strptime(p.name, "%Y%m%d")
                     valid_dirs.append(p)
@@ -62,7 +82,13 @@ class GlobalVideoProcessor:
     def _find_cam_dirs(self, base_path: Path) -> list[Path]:
         pattern = re.compile(r"^cam-\d$")
 
-        matches = [p for p in base_path.iterdir() if p.is_dir() and pattern.match(p.name)]
+        matches = [
+            p
+            for p in base_path.iterdir()
+            if p.is_dir()
+            and pattern.match(p.name)
+            and (self.cams is None or p.name in self.cams)
+        ]
         return matches
 
     def _collect_video_files(self) -> dict[str, list[tuple[Path, Path]]]:
