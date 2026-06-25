@@ -31,6 +31,7 @@ class BackgroundImageGenerator:
         output_path: Path,
         config: BgImageGenConfig,
         cams: list[str] | None = None,
+        dates: list[str] | None = None,
     ):
         self._config = config
         if not source_path.is_dir():
@@ -43,6 +44,12 @@ class BackgroundImageGenerator:
         # Optional camera filter so an external scheduler (bb_hpc) can target one
         # (date, camera) shard per task. None -> all cameras under source_path.
         self._cams = set(cams) if cams else None
+
+        # Optional calendar-day filter (YYYYMMDD strings) so a scheduler can shard
+        # a flat frame folder by day -- one (cam, day) per task. None -> all days.
+        # Only valid in windowed mode (enforced in run()); rolling/count-mode
+        # resume is global and cannot be sharded by day.
+        self._dates = set(dates) if dates else None
 
         # Per-task memmap location: defaults to system temp, but a per-task path
         # avoids collisions when several jobs share a node (the old code used a
@@ -62,6 +69,12 @@ class BackgroundImageGenerator:
         )
 
     def run(self) -> None:
+        if self._dates is not None and not self._config.background_window:
+            raise ValueError(
+                "dates filtering is only supported in windowed mode: set "
+                "config.background_window (e.g. 'day'). Rolling/count-mode resume "
+                "is global and cannot be sharded by day."
+            )
         for cam, path in self.frame_dirs_per_cam.items():
             out_dirs_per_cam = self.output_dirs.get(cam)
             cam_masked_path = out_dirs_per_cam.get("masked")
@@ -72,6 +85,7 @@ class BackgroundImageGenerator:
                 self.process_windowed_backgrounds(
                     masked_img_dir=cam_masked_path,
                     background_img_dir=cam_bg_path,
+                    min_frames=self._config.min_frames,
                 )
             else:
                 # Original count-driven rolling-median mode.
@@ -169,8 +183,22 @@ class BackgroundImageGenerator:
             kernel = np.ones(kernel_size, np.uint8)
             return cv2.dilate(mask.astype(np.uint8), kernel, iterations=1)
 
+    def _in_dates(self, path: Path) -> bool:
+        """True if the frame's embedded timestamp falls on one of self._dates.
+
+        Frames whose timestamp can't be parsed are excluded when a date filter is
+        active (they can't be attributed to a calendar day).
+        """
+        ts = windowing.parse_ts_from_name(path.name)
+        return ts is not None and ts.strftime("%Y%m%d") in self._dates
+
     def find_unmasked_imgages(self, cam_in_path: Path, masked_cam_out_path: Path) -> List[Path]:
         source_images = sorted(cam_in_path.glob("*.[pj][np][ge]*"))
+        # Day-shard filter (load-bearing for concurrency): only mask THIS task's
+        # day(s), so concurrent (cam, day) tasks writing the shared masked dir
+        # never target the same source frame.
+        if self._dates is not None:
+            source_images = [p for p in source_images if self._in_dates(p)]
         masked_images = set(f.name.replace("masked_", "") for f in masked_cam_out_path.glob("masked_*"))
         unmasked_images = [img for img in source_images if img.name not in masked_images]
         return unmasked_images
@@ -228,6 +256,11 @@ class BackgroundImageGenerator:
         if not masked_images:
             print(f"No masked images found in {masked_img_dir}")
             return
+
+        # Restrict to this task's day(s) even though the masked dir is shared
+        # across days, so only this day's window(s) are produced.
+        if self._dates is not None:
+            masked_images = [p for p in masked_images if self._in_dates(p)]
 
         masked_images = self._subsample_by_interval(masked_images)
 
@@ -533,4 +566,15 @@ class BackgroundImageGenerator:
         return clahe.apply(img)
 
     def _save_image(self, image: np.ndarray, output_path: Path) -> None:
-        cv2.imwrite(str(output_path), image)
+        # Atomic write: encode in memory, write to a per-pid temp file in the same
+        # directory, then os.replace() onto the final path. A concurrent/duplicate
+        # (cam, day) task can therefore never observe or produce a torn PNG.
+        output_path = Path(output_path)
+        ext = output_path.suffix or ".png"
+        ok, buf = cv2.imencode(ext, image)
+        if not ok:
+            raise RuntimeError(f"cv2.imencode failed for {output_path}")
+        tmp_path = output_path.with_name(f".{output_path.name}.tmp.{os.getpid()}")
+        with open(tmp_path, "wb") as f:
+            f.write(buf.tobytes())
+        os.replace(str(tmp_path), str(output_path))

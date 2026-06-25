@@ -98,3 +98,7 @@ class BgImageGenConfig(BaseModel):
     frame_interval_sec: int | None = None
     background_window: str | int | None = None
     memmap_dir: str | None = None
+    # Minimum frames a window must have (after interval subsampling) to produce a
+    # background. Single source of truth shared with an external scheduler so it
+    # does not schedule windows the engine would skip. Default 3.
+    min_frames: int = 3
