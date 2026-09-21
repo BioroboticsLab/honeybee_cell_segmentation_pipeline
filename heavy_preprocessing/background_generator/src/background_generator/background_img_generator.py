@@ -108,7 +108,8 @@ class BackgroundImageGenerator:
         """
         c = self._config
         return windowing.config_tag(
-            c.frame_interval_sec, c.background_window, c.window_size, c.num_median_images
+            c.frame_interval_sec, c.background_window, c.window_size, c.num_median_images,
+            c.window_tz,
         )
 
     def _new_memmap_path(self, tag: str) -> Path:
@@ -271,7 +272,7 @@ class BackgroundImageGenerator:
             ts = windowing.parse_ts_from_name(p.name)
             if ts is None:
                 continue
-            windows.setdefault(windowing.window_bucket(ts, win_cfg), []).append(p)
+            windows.setdefault(windowing.window_bucket(ts, win_cfg, self._config.window_tz), []).append(p)
 
         print(f"{len(windows)} background window(s) for config '{self.config_tag()}'")
         for bucket_start, frames in windows.items():

@@ -83,6 +83,12 @@ def create_parser() -> argparse.ArgumentParser:
         help="Produce one background per time window: 'hour', 'day', or seconds (default: count-based mode)"
     )
     bg_group.add_argument(
+        "--window-tz",
+        type=str,
+        default=None,
+        help="Anchor windows at local midnight in this zone, e.g. Europe/Berlin (default: UTC midnight)"
+    )
+    bg_group.add_argument(
         "--memmap-dir",
         type=str,
         default=None,
@@ -193,6 +199,7 @@ def generate_backgrounds(args: argparse.Namespace) -> None:
         device=args.device,
         frame_interval_sec=args.frame_interval_sec,
         background_window=args.background_window,
+        window_tz=args.window_tz,
         memmap_dir=args.memmap_dir,
     )
 

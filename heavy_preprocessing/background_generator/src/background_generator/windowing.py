@@ -12,7 +12,8 @@ config tag used in the output path.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 # Matches the frame timestamp embedded in extracted / masked / background
 # filenames, e.g. masked_20250603T120000.000000.000Z.png -> 20250603T120000
@@ -34,8 +35,29 @@ def ts_to_name(ts: datetime) -> str:
     return ts.strftime("%Y%m%dT%H%M%S") + ".000000.000Z"
 
 
-def window_bucket(ts: datetime, background_window: str | int) -> datetime:
-    """Floor a timestamp to the start of its background window."""
+def window_bucket(ts: datetime, background_window: str | int, window_tz: str | None = None) -> datetime:
+    """Floor a timestamp to the start of its background window.
+
+    ``ts`` is naive UTC (frame names end in ``Z``). Without ``window_tz`` windows
+    are anchored at UTC midnight. With ``window_tz`` (e.g. "Europe/Berlin") they
+    are anchored at local midnight in that zone and advance in elapsed seconds,
+    so a 4-hour window runs 00-04, 04-08, ... local time and the day's windows
+    line up with local-date video folders. On a DST day the last window is short
+    (or long) instead of merging the repeated hour. The result is naive UTC.
+    """
+    if window_tz:
+        utc = ts.replace(tzinfo=timezone.utc)
+        local_midnight = utc.astimezone(ZoneInfo(window_tz)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        day_start = local_midnight.astimezone(timezone.utc)
+        if background_window == "day":
+            start = day_start
+        else:
+            seconds = 3600 if background_window == "hour" else int(background_window)
+            offset = int((utc - day_start).total_seconds())
+            start = day_start + timedelta(seconds=(offset // seconds) * seconds)
+        return start.replace(tzinfo=None)
     if background_window == "hour":
         return ts.replace(minute=0, second=0, microsecond=0)
     if background_window == "day":
@@ -51,11 +73,15 @@ def config_tag(
     background_window: str | int | None,
     window_size: int,
     num_median_images: int,
+    window_tz: str | None = None,
 ) -> str:
     """Short tag identifying a background configuration (used in the output path)."""
     interval = frame_interval_sec or 0
     if background_window:
-        return f"int{interval}s_win{background_window}"
+        tag = f"int{interval}s_win{background_window}"
+        if window_tz:
+            tag += "_tz" + window_tz.replace("/", "-")
+        return tag
     return f"count_w{window_size}_n{num_median_images}_int{interval}s"
 
 
@@ -83,6 +109,7 @@ def expected_background_names(
     frame_names: list[str],
     frame_interval_sec: int | None,
     background_window: str | int,
+    window_tz: str | None = None,
 ) -> set[str]:
     """Background output filenames a windowed run would produce from these frames.
 
@@ -97,5 +124,5 @@ def expected_background_names(
         ts = parse_ts_from_name(name)
         if ts is None:
             continue
-        buckets.add(window_bucket(ts, background_window))
+        buckets.add(window_bucket(ts, background_window, window_tz))
     return {f"background_{ts_to_name(b)}.png" for b in buckets}

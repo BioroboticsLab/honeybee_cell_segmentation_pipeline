@@ -80,6 +80,13 @@ class BgImageGenConfig(BaseModel):
             (default) keeps the original count-based behavior (window_size /
             num_median_images / jump_size_from_last / max_cycles).
 
+        window_tz (str | None):
+            Optional IANA time zone (e.g. "Europe/Berlin") that windows are
+            anchored to. None (default) anchors windows at UTC midnight. With a
+            zone, windows start at local midnight and advance in elapsed
+            seconds, so 4-hour windows run 00-04, 04-08, ... local time and
+            line up with local-date video folders. Output names stay UTC.
+
         memmap_dir (str | None):
             Directory for the temporary rolling-median memmap file. Defaults to
             the system temp dir. Set a per-task path on shared clusters so
@@ -88,7 +95,7 @@ class BgImageGenConfig(BaseModel):
 
     window_size: int = 10
     num_median_images: int = 48
-    max_cycles: int = None
+    max_cycles: int | None = None
     jump_size_from_last: int = 1
     apply_clahe: Literal["intermediate", "post"] = "post"
     mask_dilation: Literal[0, 9, 15, 25] = 0
@@ -97,6 +104,7 @@ class BgImageGenConfig(BaseModel):
     device: Literal["cuda", "cpu"] = "cuda"
     frame_interval_sec: int | None = None
     background_window: str | int | None = None
+    window_tz: str | None = None
     memmap_dir: str | None = None
     # Minimum frames a window must have (after interval subsampling) to produce a
     # background. Single source of truth shared with an external scheduler so it
