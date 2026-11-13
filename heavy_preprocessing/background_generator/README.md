@@ -37,7 +37,7 @@ background-generator --help
 If you prefer manual installation:
 
 ```bash
-cd tools/background_generator
+cd heavy_preprocessing/background_generator
 pip install -e .
 ```
 

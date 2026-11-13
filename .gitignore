@@ -176,4 +176,4 @@ cython_debug/
 .vscode/
 *.exe
 ffmpeg
-packages/.DS_Store
+.DS_Store
